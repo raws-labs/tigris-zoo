@@ -1,0 +1,69 @@
+name: Build model artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      compiler_ref:
+        description: Full compiler commit containing the zoo commands
+        required: true
+        type: string
+        default: cafc9315e1386dd39639370a4b8609e5413f5108
+      publish:
+        description: Upload validated artifacts to HF
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-zoo-publication
+  cancel-in-progress: false
+
+jobs:
+  electricity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '8'
+      MKL_NUM_THREADS: '8'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate compiler revision
+        env:
+          COMPILER_REF: ${{ inputs.compiler_ref }}
+        run: '[[ "$COMPILER_REF" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@v4
+        with:
+          repository: raws-labs/tigris
+          ref: ${{ inputs.compiler_ref }}
+          path: .compiler
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -c requirements-build.txt -e '.compiler[dev]'
+          mkdir -p .build
+      - name: Check publisher
+        run: |
+          .venv/bin/ruff check --select E4,E7,E9,F recipes scripts tests
+          .venv/bin/python -m pytest tests -q
+      - name: Build and evaluate
+        working-directory: .build
+        run: ../.venv/bin/python ../recipes/electricity.py --output electricity
+      - name: Prepare catalog update
+        if: ${{ !inputs.publish }}
+        run: .venv/bin/python scripts/publish.py .build/electricity/*k --output .build/staged
+      - name: Publish catalog update
+        if: ${{ inputs.publish }}
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: .venv/bin/python scripts/publish.py .build/electricity/*k --output .build/staged --publish
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compiled-models
+          path: .build/staged
+          if-no-files-found: error

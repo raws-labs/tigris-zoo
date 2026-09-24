@@ -1,0 +1,9 @@
+numpy==2.5.3
+onnx==1.23.0
+onnxruntime==1.30.0
+pyyaml==6.0.3
+click==8.5.0
+rich==15.0.0
+lz4==4.4.5
+huggingface-hub==1.33.0
+packaging==26.3

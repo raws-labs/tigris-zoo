@@ -1,0 +1,9 @@
+This repository contains separately licensed model artifacts.
+
+Each artifact's license.txt identifies its applicable license and attribution.
+The manifest.json records its license identifier and source provenance.
+Downloading or converting a model does not replace its upstream license.
+
+Original RAWS Labs documentation and catalog metadata are provided under the
+Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0
+Copyright 2026 RAWS Labs
