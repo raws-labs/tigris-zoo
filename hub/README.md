@@ -13,6 +13,10 @@ Precompiled `.tgrs` models with runtime requirements, input/output conventions,
 evaluation results, and example tensors. Each model's artifacts are under
 `models/<model>/artifacts/<artifact-id>/`.
 
+`example-output.bin` is the ONNX Runtime output for `example-input.bin`. TiGrIS
+runtimes reproduce it within the tolerance recorded in `evaluation.json`, not
+byte for byte.
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
