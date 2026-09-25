@@ -1,6 +1,6 @@
 # Building and publishing
 
-Branches start from `develop`; changes are reviewed before publication. Recipes
+Branches start from `main`; changes are reviewed before publication. Recipes
 pin sources and verify dataset hashes. They evaluate trained models on held-out
 data and compare each compiled variant with ONNX Runtime on that same data.
 Hardware execution is a separate manual check, never part of CI.
