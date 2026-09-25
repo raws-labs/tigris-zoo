@@ -125,13 +125,7 @@ def train(values, dates, output):
     return test, metrics
 
 
-def build(args):
-    output = args.output.resolve()
-    if output.exists():
-        raise ValueError("output already exists; use a new build directory")
-    compiler = checkout(args.compiler_source, "https://github.com/raws-labs/tigris.git", COMPILER)
-    runtime = checkout(args.runtime_source, "https://github.com/raws-labs/tigris-runtime.git", RUNTIME)
-    archive = args.dataset
+def dataset(archive):
     if not archive.exists():
         archive.parent.mkdir(parents=True, exist_ok=True)
         temporary = archive.with_suffix(".part")
@@ -142,20 +136,95 @@ def build(args):
         temporary.replace(archive)
     if digest(archive) != DATASET_SHA:
         raise ValueError("dataset checksum mismatch")
-    output.mkdir(parents=True)
-    values, dates = hourly_values(archive)
-    test, metrics = train(values, dates, output)
+    return hourly_values(archive)
+
+
+def references(output, test, metrics):
+    """Held-out inputs and the ONNX Runtime outputs every runtime is checked against."""
     options = ort.SessionOptions()
     options.intra_op_num_threads = min(8, int(os.environ.get("OMP_NUM_THREADS", "1")))
     options.inter_op_num_threads = 1
     session = ort.InferenceSession(str(output / "model.onnx"), options, providers=["CPUExecutionProvider"])
     inputs = test[0][:, :-1].astype("<f4")
-    references = np.concatenate([session.run(None, {"input": row[None]})[0] for row in inputs])
-    metrics["onnx_mae_kw"] = float(np.abs(references * test[3] + test[2] - test[5]).mean())
-    if not metrics["onnx_mae_kw"] < min(metrics["daily_persistence_mae_kw"], metrics["weekly_persistence_mae_kw"]):
-        raise ValueError("trained model does not improve on both persistence baselines")
+    outputs = np.concatenate([session.run(None, {"input": row[None]})[0] for row in inputs])
+    metrics["onnx_mae_kw"] = float(np.abs(outputs * test[3] + test[2] - test[5]).mean())
+    return inputs, outputs
+
+
+def runner(runtime, output, plan, generated, env=None):
+    """Build the runtime library and a runner linked with the plan's generated core."""
     run(["cmake", "-S", runtime, "-B", output / "runtime", "-DCMAKE_BUILD_TYPE=Release"])
     run(["cmake", "--build", output / "runtime", "--target", "tigris_runtime", "--parallel", "8"])
+    generated.mkdir()
+    run([sys.executable, "-c", "from tigris.cli import main; main()", "codegen",
+         plan, "--format", "core", "-o", generated / "model.c"], env=env)
+    executable = generated / "run"
+    run(["cc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-I", runtime / "include",
+         "-I", generated, ROOT / "recipes/electricity_runner.c", generated / "model.c",
+         output / "runtime/libtigris_runtime.a", "-lm", "-o", executable])
+    return executable
+
+
+def runtime_gates(executable, plan, inputs, outputs, test, metrics, memory, workdir):
+    """The acceptance gates for a plan on one runtime: ONNX parity on every held-out
+    window, task error equal to ONNX, the fast budget, and refusal of a slow arena
+    one byte short. Raises on any failure."""
+    # This recipe has linear rank-2 interfaces, so no boundary transpose applies.
+    predictions, peaks, slow_usage = [], [], []
+    for row, reference in zip(inputs, outputs):
+        row.tofile(workdir / "input.bin")
+        report = run([executable, plan, workdir / "input.bin", workdir / "output.bin"])
+        prediction = np.fromfile(workdir / "output.bin", dtype="<f4")
+        np.testing.assert_allclose(prediction, reference, rtol=1e-4, atol=1e-4)
+        predictions.append(prediction)
+        report = json.loads(report)
+        peaks.append(report["fast_peak"])
+        slow_usage.append(report["slow_peak"])
+    predictions = np.array(predictions)
+    evaluation = dict(metrics, parity_passed=True, atol=1e-4, rtol=1e-4,
+                      max_abs_error=float(np.abs(predictions - outputs).max()),
+                      runtime_mae_kw=float(np.abs(predictions * test[3] + test[2] - test[5]).mean()),
+                      measured_fast_peak_bytes=max(peaks),
+                      measured_slow_bytes=max(slow_usage),
+                      host_executor_workspace_bytes=report["workspace_bytes"])
+    if max(peaks) > memory["fast_bytes"] or abs(evaluation["runtime_mae_kw"] - metrics["onnx_mae_kw"]) > 1e-4:
+        raise ValueError("runtime memory or task-quality gate failed")
+    insufficient = subprocess.run([str(executable), str(plan), str(workdir / "input.bin"),
+                                   str(workdir / "output.bin"), str(memory["slow_bytes"] - 1)], capture_output=True)
+    if insufficient.returncode != 9:
+        raise ValueError("slow-arena lower-bound check failed")
+    return evaluation
+
+
+def revalidate(plan, manifest, runtime, output, archive):
+    """Rerun this recipe's runtime gates on published plan bytes with another runtime
+    checkout, using the installed compiler's code generator. Returns the evaluation."""
+    if digest(plan) != next(item["sha256"] for item in manifest["files"] if item["path"] == "model.tgrs"):
+        raise ValueError("plan bytes differ from the published manifest")
+    if manifest["source"]["dataset_sha256"] != DATASET_SHA:
+        raise ValueError("artifact was built from a different dataset")
+    output.mkdir(parents=True)
+    values, dates = dataset(archive)
+    test, metrics = train(values, dates, output)
+    if digest(output / "model.onnx") != manifest["source"]["onnx_sha256"]:
+        raise ValueError("retraining did not reproduce the published model")
+    inputs, outputs = references(output, test, metrics)
+    executable = runner(runtime, output, plan, output / "codegen")
+    return runtime_gates(executable, plan, inputs, outputs, test, metrics, manifest["memory"], output)
+
+
+def build(args):
+    output = args.output.resolve()
+    if output.exists():
+        raise ValueError("output already exists; use a new build directory")
+    compiler = checkout(args.compiler_source, "https://github.com/raws-labs/tigris.git", COMPILER)
+    runtime = checkout(args.runtime_source, "https://github.com/raws-labs/tigris-runtime.git", RUNTIME)
+    output.mkdir(parents=True)
+    values, dates = dataset(args.dataset)
+    test, metrics = train(values, dates, output)
+    inputs, references_out = references(output, test, metrics)
+    if not metrics["onnx_mae_kw"] < min(metrics["daily_persistence_mae_kw"], metrics["weekly_persistence_mae_kw"]):
+        raise ValueError("trained model does not improve on both persistence baselines")
     recipe_hash = digest(Path(__file__))
     runner_hash = digest(ROOT / "recipes/electricity_runner.c")
     requirements_hash = digest(ROOT / "requirements-build.txt")
@@ -174,40 +243,11 @@ def build(args):
     plan = read_binary_plan((directory / "model.tgrs").read_bytes())
     if plan["version"] != 7 or plan["budget"] != budget:
         raise ValueError("unexpected compiled plan contract")
-    generated = output / f"codegen-{budget}"
-    generated.mkdir()
-    run([sys.executable, "-c", "from tigris.cli import main; main()", "codegen",
-         directory / "model.tgrs", "--format", "core", "-o", generated / "model.c"], env=env)
-    runner = generated / "run"
-    run(["cc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-I", runtime / "include",
-         "-I", generated, ROOT / "recipes/electricity_runner.c", generated / "model.c",
-         output / "runtime/libtigris_runtime.a", "-lm", "-o", runner])
-    # This recipe has linear rank-2 interfaces, so no boundary transpose applies.
-    predictions, peaks, slow_usage = [], [], []
-    for row, reference in zip(inputs, references):
-        row.tofile(output / "input.bin")
-        report = run([runner, directory / "model.tgrs", output / "input.bin", output / "output.bin"])
-        prediction = np.fromfile(output / "output.bin", dtype="<f4")
-        np.testing.assert_allclose(prediction, reference, rtol=1e-4, atol=1e-4)
-        predictions.append(prediction)
-        report = json.loads(report)
-        peaks.append(report["fast_peak"])
-        slow_usage.append(report["slow_peak"])
-    predictions = np.array(predictions)
-    evaluation = dict(metrics, parity_passed=True, atol=1e-4, rtol=1e-4,
-                      max_abs_error=float(np.abs(predictions - references).max()),
-                      runtime_mae_kw=float(np.abs(predictions * test[3] + test[2] - test[5]).mean()),
-                      measured_fast_peak_bytes=max(peaks),
-                      measured_slow_bytes=max(slow_usage),
-                      host_executor_workspace_bytes=report["workspace_bytes"])
-    if max(peaks) > budget or abs(evaluation["runtime_mae_kw"] - metrics["onnx_mae_kw"]) > 1e-4:
-        raise ValueError("runtime memory or task-quality gate failed")
-    insufficient = subprocess.run([str(runner), str(directory / "model.tgrs"), str(output / "input.bin"),
-                                   str(output / "output.bin"), "767"], capture_output=True)
-    if insufficient.returncode != 9:
-        raise ValueError("slow-arena lower-bound check failed")
+    executable = runner(runtime, output, directory / "model.tgrs", output / f"codegen-{budget}", env=env)
+    evaluation = runtime_gates(executable, directory / "model.tgrs", inputs, references_out, test, metrics,
+                               {"fast_bytes": budget, "slow_bytes": 768}, output)
     inputs[0].tofile(directory / "example-input.bin")
-    references[0].astype("<f4").tofile(directory / "example-output.bin")
+    references_out[0].astype("<f4").tofile(directory / "example-output.bin")
     origin = test[6][0]
     with (directory / "example.csv").open("w") as stream:
         stream.write("timestamp,demand_kw\n")

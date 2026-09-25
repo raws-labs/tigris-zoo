@@ -16,6 +16,10 @@ on:
         description: Sync only the model card (hub/README.md, hub/LICENSE); build nothing
         type: boolean
         default: false
+      validate_runtime:
+        description: Runtime release to validate every active artifact on, such as 0.10.0; build nothing
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -26,7 +30,7 @@ concurrency:
 
 jobs:
   electricity:
-    if: ${{ !inputs.card }}
+    if: ${{ !inputs.card && inputs.validate_runtime == '' }}
     runs-on: ubuntu-latest
     # HF_TOKEN lives in this environment, which only main may deploy from.
     environment: ${{ inputs.publish && 'hf-publish' || '' }}
@@ -109,3 +113,56 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: .venv/bin/python scripts/publish.py --card --output .build/card --publish
+
+  validate:
+    if: ${{ inputs.validate_runtime != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.publish && 'hf-publish' || '' }}
+    env:
+      OMP_NUM_THREADS: '8'
+      MKL_NUM_THREADS: '8'
+      RUNTIME: ${{ inputs.validate_runtime }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate inputs
+        env:
+          COMPILER_REF: ${{ inputs.compiler_ref }}
+        run: |
+          [[ "$COMPILER_REF" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RUNTIME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+      - uses: actions/checkout@v4
+        with:
+          repository: raws-labs/tigris
+          ref: ${{ inputs.compiler_ref }}
+          path: .compiler
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -c requirements-build.txt -e '.compiler[dev]'
+      - name: Check publisher
+        run: .venv/bin/python -m pytest tests -q
+      - name: Validate published artifacts on the runtime release
+        run: .venv/bin/python scripts/validate_runtime.py --runtime "$RUNTIME" --output .build/validate
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-validation
+          path: |
+            .build/validate/*/validation.json
+            .build/validate/*/metadata.json
+          if-no-files-found: ignore
+      - name: Record the validated runtime
+        if: ${{ inputs.publish }}
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          for metadata in .build/validate/*/metadata.json; do
+            [ -e "$metadata" ] || continue
+            id=$(basename "$(dirname "$metadata")")
+            .venv/bin/python scripts/publish.py --update "$id" --metadata "$metadata" \
+              --output ".build/update-$id" --publish
+          done
