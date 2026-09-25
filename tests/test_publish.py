@@ -236,3 +236,31 @@ def test_publish_requires_committed_source(build, tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         publisher.main()
     assert exc.value.code == 1
+
+
+def test_card_sync_uploads_the_card_with_the_unchanged_catalog(build, tmp_path, monkeypatch):
+    original = publisher.prepare([build], {"format_version": 1, "artifacts": []}, tmp_path / "first")
+    stage = tmp_path / "stage"
+    publisher.prepare([], original, stage, card=True)
+    assert (stage / "README.md").read_bytes() == (ROOT / "hub/README.md").read_bytes()
+    assert json.loads((stage / "catalog.json").read_text()) == original
+    calls = []
+
+    def commit(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(commit_url="https://example.test/commit")
+
+    monkeypatch.setattr(publisher, "HfApi", lambda: SimpleNamespace(create_commit=commit))
+    publisher.publish(stage, "example/zoo", "a" * 40, {"catalog.json"}, original, card=True)
+    assert len(calls) == 1 and calls[0]["parent_commit"] == "a" * 40
+    assert {op.path_in_repo for op in calls[0]["operations"]} == {"catalog.json", "README.md", "LICENSE"}
+    assert calls[0]["commit_message"] == "docs: update the model card"
+
+
+def test_card_needs_the_card_flag_once_models_are_published(build, tmp_path, monkeypatch):
+    original = publisher.prepare([build], {"format_version": 1, "artifacts": []}, tmp_path / "first")
+    stage = tmp_path / "stage"
+    publisher.prepare([], original, stage, card=True)
+    monkeypatch.setattr(publisher, "HfApi", lambda: pytest.fail("must not write to HF"))
+    with pytest.raises(ValueError, match="unexpected files"):
+        publisher.publish(stage, "example/zoo", "a" * 40, {"catalog.json"}, original)

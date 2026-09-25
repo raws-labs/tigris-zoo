@@ -16,6 +16,10 @@ the model repository. Supply credentials through `HF_TOKEN` or a local HF login.
 Never put credentials in recipes. The manually dispatched workflow defaults to
 preparation only and serializes runs. Merges do not publish.
 
+The model card is `hub/README.md` with `hub/LICENSE`. `--card` stages both, and
+with `--publish` uploads them together with the unchanged catalog; the
+workflow's `card` input runs only that step.
+
 The publisher assigns timestamps once, rejects reused artifact IDs or existing
 artifact directories, and uploads files and catalog in a single commit guarded
 by the previous HF commit. If another publisher wins, prepare again against the
