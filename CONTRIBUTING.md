@@ -14,7 +14,10 @@ Only a deliberate invocation with `--publish` uploads. It requires a clean,
 committed recipe checkout matching the build provenance and HF write access to
 the model repository. Supply credentials through `HF_TOKEN` or a local HF login.
 Never put credentials in recipes. The manually dispatched workflow defaults to
-preparation only and serializes runs. Merges do not publish.
+preparation only and serializes runs. Merges do not publish. `main` takes changes
+only through reviewed pull requests with passing CI, and the workflow's publish
+steps run in the `hf-publish` environment, which holds `HF_TOKEN` and deploys
+only from `main`: publish from `main` after the change is merged.
 
 The model card is `hub/README.md` with `hub/LICENSE`. `--card` stages both, and
 with `--publish` uploads them together with the unchanged catalog; the
