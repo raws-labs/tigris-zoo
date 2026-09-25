@@ -16,7 +16,7 @@ evaluation results, and example tensors. Each model's artifacts are under
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install 'tigris-ml @ git+https://github.com/raws-labs/tigris.git@cafc9315e1386dd39639370a4b8609e5413f5108'
+pip install 'tigris-ml>=0.9.0'
 tigris zoo list
 tigris zoo fetch electricity-hourly -o downloaded-model
 tigris codegen downloaded-model/model.tgrs --format core -o model.c

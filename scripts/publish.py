@@ -55,7 +55,8 @@ def validate_build(directory):
     return metadata
 
 
-def prepare(builds, catalog, output, *, now=None, withdraw=None, reason=None, update=None, metadata_update=None):
+def prepare(builds, catalog, output, *, now=None, withdraw=None, reason=None, update=None, metadata_update=None,
+            card=False):
     validate_catalog(catalog)
     if output.exists():
         raise ValueError("staging destination already exists")
@@ -104,7 +105,7 @@ def prepare(builds, catalog, output, *, now=None, withdraw=None, reason=None, up
                                          tested_runtime_versions=metadata["evaluation"]["tested_runtime_versions"]))
     validate_catalog(updated)
     write_json(output / "catalog.json", updated)
-    if not catalog["artifacts"]:
+    if card or not catalog["artifacts"]:
         for name in ("README.md", "LICENSE"):
             shutil.copyfile(ROOT / "hub" / name, output / name)
     return updated
@@ -121,7 +122,7 @@ def remote_catalog(repository):
     return info.sha, files, catalog
 
 
-def publish(stage, repository, parent, existing_files, original_catalog):
+def publish(stage, repository, parent, existing_files, original_catalog, *, card=False):
     # Optimistic concurrency protects the catalog across all publishing clients.
     staged = json.loads((stage / "catalog.json").read_text())
     validate_catalog(staged)
@@ -134,7 +135,7 @@ def publish(stage, repository, parent, existing_files, original_catalog):
         if not set(old["tested_runtime_versions"]) <= set(current["tested_runtime_versions"]):
             raise ValueError("published runtime validations must remain recorded")
     allowed = {"catalog.json"}
-    if not original_catalog["artifacts"]:
+    if card or not original_catalog["artifacts"]:
         allowed.update(("README.md", "LICENSE"))
     for item in staged["artifacts"]:
         if item["id"] not in old_ids:
@@ -155,9 +156,11 @@ def publish(stage, repository, parent, existing_files, original_catalog):
         raise ValueError("staging directory contains missing or unexpected files")
     operations = [CommitOperationAdd(path_in_repo=path.relative_to(stage).as_posix(), path_or_fileobj=path)
                   for path in sorted(stage.rglob("*")) if path.is_file()]
+    message = ("docs: update the model card" if card and staged == original_catalog
+               else "feat: update compiled model catalog")
     return HfApi().create_commit(
         repo_id=repository, revision="main", parent_commit=parent, operations=operations,
-        commit_message="feat: update compiled model catalog", commit_description="",
+        commit_message=message, commit_description="",
     )
 
 
@@ -171,13 +174,14 @@ def main():
     parser.add_argument("--reason")
     parser.add_argument("--update", help="Artifact ID whose catalog metadata should change")
     parser.add_argument("--metadata", type=Path, help="JSON containing runtime constraints and/or tested_runtime_versions")
+    parser.add_argument("--card", action="store_true", help="Also upload hub/README.md and hub/LICENSE")
     parser.add_argument("--publish", action="store_true")
     args = parser.parse_args()
     try:
         if bool(args.withdraw) != bool(args.reason) or bool(args.update) != bool(args.metadata):
             raise ValueError("pair --withdraw with --reason, and --update with --metadata")
-        if not args.builds and not args.withdraw and not args.update:
-            raise ValueError("provide builds, a withdrawal, or a metadata update")
+        if not args.builds and not args.withdraw and not args.update and not args.card:
+            raise ValueError("provide builds, a withdrawal, a metadata update, or --card")
         if args.publish and args.catalog:
             raise ValueError("--publish must read the current remote catalog")
         if args.catalog:
@@ -200,10 +204,11 @@ def main():
                     if not path.is_relative_to(ROOT) or digest(path) != expected:
                         raise ValueError("recipe source changed since the artifact was built")
         updated = prepare(args.builds, original, args.output, withdraw=args.withdraw, reason=args.reason,
-                          update=args.update, metadata_update=json.loads(args.metadata.read_text()) if args.metadata else None)
+                          update=args.update, metadata_update=json.loads(args.metadata.read_text()) if args.metadata else None,
+                          card=args.card)
         print(f"Prepared {len(updated['artifacts'])} catalog entries in {args.output}")
         if args.publish:
-            result = publish(args.output, args.repository, parent, files, original)
+            result = publish(args.output, args.repository, parent, files, original, card=args.card)
             print(result.commit_url)
         else:
             print("Preparation only; nothing uploaded.")
