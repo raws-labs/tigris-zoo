@@ -19,7 +19,11 @@ Read CONTRIBUTING.md before building or changing published content.
 - Withdraw defective artifacts through the publisher; never delete them.
 - Update compatibility and validation records through catalog metadata updates.
 - Runtime maxima describe known cutoffs, never the newest tested release.
-- Record additional tested runtimes only after validating existing plan bytes.
+- Record additional tested runtimes only after validating existing plan bytes:
+  run the workflow with `validate_runtime` set to the release, which reruns each
+  artifact's recipe gates through scripts/validate_runtime.py before recording.
+- Every recipe provides `revalidate()` so its artifacts can be validated on
+  later runtime releases.
 - Keep credentials out of tracked files and command output.
 
 ## Verification

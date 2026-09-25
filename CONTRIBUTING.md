@@ -48,8 +48,21 @@ republishing artifact files. The original manifest remains intact. Downloads
 preserve the current catalog records in `download.json`, which supplies the
 effective dependency information; `manifest.json` is the build-time snapshot.
 
-After validating existing plan bytes on another runtime release, update the
-catalog's `tested_runtime_versions` list. Preserve earlier validation entries.
+Validate existing plan bytes on a new runtime release with
+`scripts/validate_runtime.py --runtime X.Y.Z --output DIR`. For every active
+artifact whose runtime range admits the release, it fetches the published files,
+checks out the release tag, and reruns the artifact's own recipe gates through
+the recipe's `revalidate()`: the recipe retrains and must reproduce the
+published ONNX hash, the plan bytes must match their manifest hash, and the
+runtime must pass ONNX parity on every held-out window, the task-error, fast
+budget and slow-arena checks the build passed. The generated core comes from the
+installed compiler. Each pass stages `DIR/ID/metadata.json`, which appends the
+release to `tested_runtime_versions`, and `DIR/ID/validation.json` with the
+measurements. A failed gate stages nothing. The workflow's `validate_runtime`
+input runs this in CI, keeps the two files as the `runtime-validation` artifact,
+and with `publish` records every staged update. A new recipe must provide
+`revalidate()` before its artifacts can be validated this way.
+
 For an actual incompatibility, update `runtime` and explain it in
 `compatibility_note`. Put only the changed fields in a JSON file, then prepare:
 
