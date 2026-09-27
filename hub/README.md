@@ -13,23 +13,19 @@ Precompiled `.tgrs` models with runtime requirements, input/output conventions,
 evaluation results, and example tensors. Each model's artifacts are under
 `models/<model>/artifacts/<artifact-id>/`.
 
-`example-output.bin` is the ONNX Runtime output for `example-input.bin`. TiGrIS
-runtimes reproduce it within the tolerance recorded in `evaluation.json`, not
-byte for byte.
+Each artifact's `readme.md` documents the model's task, input preprocessing,
+output units, evaluation results and limitations. `example-output.bin` is the
+reference output the recipe compared the runtime against for `example-input.bin`;
+`evaluation.json` records how closely the runtime reproduced the reference.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install 'tigris-ml>=0.9.0'
+pip install tigris-ml
 tigris zoo list
 tigris zoo fetch electricity-hourly -o downloaded-model
 tigris codegen downloaded-model/model.tgrs --format core -o model.c
 ```
-
-The electricity model predicts the next 24 hourly readings from the preceding
-168 hours. It is evaluated on a chronological holdout from one household, with
-daily and weekly persistence comparisons. See the downloaded `readme.md` for
-normalization, units, evaluation results, and limitations.
 
 Downloads need no account. Filters select compatible builds before choosing the
 newest publication. Supply the runtime separately within the current range recorded
