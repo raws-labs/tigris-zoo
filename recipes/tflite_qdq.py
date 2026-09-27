@@ -3,14 +3,15 @@
 The ONNX graph carries the TFLite model's exact int8 weights, int32 biases and
 scales in NCHW layout, with Q/DQ pairs wherever TFLite requantizes, so TiGrIS
 and ONNX Runtime execute the same quantized model. Supported operators:
-CONV_2D, DEPTHWISE_CONV_2D, global AVERAGE_POOL_2D, RESHAPE, FULLY_CONNECTED,
-SOFTMAX; anything else is refused.
+CONV_2D, DEPTHWISE_CONV_2D, ADD, global AVERAGE_POOL_2D, RESHAPE,
+FULLY_CONNECTED, SOFTMAX; anything else is refused.
 """
 
 import numpy as np
 import onnx
 from onnx import TensorProto, helper, numpy_helper
 from tflite.ActivationFunctionType import ActivationFunctionType
+from tflite.AddOptions import AddOptions
 from tflite.BuiltinOperator import BuiltinOperator
 from tflite.Conv2DOptions import Conv2DOptions
 from tflite.DepthwiseConv2DOptions import DepthwiseConv2DOptions
@@ -132,6 +133,13 @@ def convert(tflite_bytes, name):
                                           kernel_shape=[in_h, in_w], strides=[1, 1]))
             values[output] = requantized(
                 activation(tag + "_gap", opts.FusedActivationFunction(), tag), output, tag)
+
+        elif kind == "ADD":
+            if shape(inputs[0]) != shape(inputs[1]):
+                raise ValueError("only an ADD of equal shapes is supported")
+            nodes.append(helper.make_node("Add", [values[inputs[0]], values[inputs[1]]], [tag + "_add"]))
+            fused = options(operator, AddOptions).FusedActivationFunction()
+            values[output] = requantized(activation(tag + "_add", fused, tag), output, tag)
 
         elif kind == "RESHAPE":
             if len(shape(output)) != 2:

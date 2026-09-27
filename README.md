@@ -13,7 +13,7 @@ in a project environment:
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install -c requirements-build.txt \
-  'tigris-ml[dev]' tflite tflite-micro
+  'tigris-ml[dev]' tflite tflite-micro pillow
 mkdir -p .build
 (cd .build && ../.venv/bin/python ../recipes/electricity.py --output electricity)
 .venv/bin/python scripts/publish.py .build/electricity/*k \
