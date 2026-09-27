@@ -196,7 +196,7 @@ def runtime_gates(executable, plan, inputs, outputs, test, metrics, memory, work
     return evaluation
 
 
-def revalidate(plan, manifest, runtime, output, archive):
+def revalidate(plan, manifest, runtime, output, data):
     """Rerun this recipe's runtime gates on published plan bytes with another runtime
     checkout, using the installed compiler's code generator. Returns the evaluation."""
     if digest(plan) != next(item["sha256"] for item in manifest["files"] if item["path"] == "model.tgrs"):
@@ -204,7 +204,7 @@ def revalidate(plan, manifest, runtime, output, archive):
     if manifest["source"]["dataset_sha256"] != DATASET_SHA:
         raise ValueError("artifact was built from a different dataset")
     output.mkdir(parents=True)
-    values, dates = dataset(archive)
+    values, dates = dataset(data / "electricity.zip")
     test, metrics = train(values, dates, output)
     if digest(output / "model.onnx") != manifest["source"]["onnx_sha256"]:
         raise ValueError("retraining did not reproduce the published model")

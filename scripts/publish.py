@@ -43,7 +43,8 @@ def validate_build(directory):
     evaluation = json.loads((directory / "evaluation.json").read_text())
     if evaluation != metadata["evaluation"]:
         raise ValueError("evaluation file disagrees with metadata")
-    if evaluation.get("parity_passed") is not True or evaluation.get("test_windows", 0) <= 0:
+    held_out = evaluation.get("test_windows", evaluation.get("test_clips", 0))
+    if evaluation.get("parity_passed") is not True or held_out <= 0:
         raise ValueError("evaluation must include successful runtime parity and held-out task measurements")
     tested = evaluation.get("tested_runtime_versions", [])
     if not isinstance(tested, list) or not tested:
