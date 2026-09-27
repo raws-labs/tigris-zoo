@@ -41,7 +41,7 @@ def recipe_module(manifest):
     return module
 
 
-def validate(zoo, artifacts, release, output, runtime, dataset):
+def validate(zoo, artifacts, release, output, runtime, data):
     """Run each artifact's recipe gates on `release`; stage one metadata update per pass."""
     staged = []
     for artifact in artifacts:
@@ -55,7 +55,7 @@ def validate(zoo, artifacts, release, output, runtime, dataset):
         zoo.fetch(artifact, download)
         manifest = json.loads((download / "manifest.json").read_text())
         evaluation = recipe_module(manifest).revalidate(
-            download / "model.tgrs", manifest, runtime, workdir / "work", dataset)
+            download / "model.tgrs", manifest, runtime, workdir / "work", data)
         (workdir / "validation.json").write_text(json.dumps(
             dict(evaluation, runtime_version=release, runtime_commit=git("rev-parse", "HEAD", cwd=runtime)),
             indent=2, sort_keys=True) + "\n")
@@ -74,7 +74,8 @@ def main():
     parser.add_argument("--catalog", type=Path, help="Local catalog snapshot instead of the model repository")
     parser.add_argument("--repository", default=REPOSITORY)
     parser.add_argument("--runtime-source", type=Path, help="Existing checkout of the runtime release tag")
-    parser.add_argument("--dataset", type=Path, default=ROOT / ".build/electricity.zip")
+    parser.add_argument("--data", type=Path, default=ROOT / ".build",
+                        help="Download cache the recipes read their datasets from")
     args = parser.parse_args()
     try:
         version(args.runtime)
@@ -89,7 +90,7 @@ def main():
                 raise ValueError(f"unknown or withdrawn artifact: {', '.join(sorted(unknown))}")
             active = [item for item in active if item["id"] in args.artifact]
         runtime = runtime_checkout(args.runtime, args.runtime_source or args.output / "runtime")
-        staged = validate(zoo, active, args.runtime, args.output, runtime, args.dataset.resolve())
+        staged = validate(zoo, active, args.runtime, args.output, runtime, args.data.resolve())
         print(f"Staged {len(staged)} metadata update(s) in {args.output}")
     except (ValueError, OSError, AssertionError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"Error: {exc}\n")

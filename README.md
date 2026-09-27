@@ -13,7 +13,7 @@ in a project environment:
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install -c requirements-build.txt \
-  'tigris-ml[dev]==0.9.0'
+  'tigris-ml[dev]' tflite tflite-micro
 mkdir -p .build
 (cd .build && ../.venv/bin/python ../recipes/electricity.py --output electricity)
 .venv/bin/python scripts/publish.py .build/electricity/*k \
@@ -21,7 +21,9 @@ mkdir -p .build
 .venv/bin/tigris zoo --catalog .build/staged/catalog.json list
 ```
 
-The recipe downloads the dataset and pinned compiler/runtime sources on its first
+Every recipe in `recipes/` builds the same way.
+
+Each recipe downloads its dataset and pinned compiler/runtime sources on its first
 run. Builds need a C compiler and CMake. Host training and evaluation should run
 under an appropriate resource limit; thread counts are capped by the workflow.
 Artifacts include task measurements, example tensors, and input/output conventions.

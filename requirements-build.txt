@@ -7,3 +7,6 @@ rich==15.0.0
 lz4==4.4.5
 huggingface-hub==1.33.0
 packaging==26.3
+flatbuffers==25.12.19
+tflite==2.18.0
+tflite-micro==0.dev20260925222358

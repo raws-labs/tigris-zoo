@@ -39,7 +39,7 @@ def runtime(tmp_path):
 
 
 def gates(result=None, error=None):
-    def revalidate(plan, manifest, runtime, output, dataset):
+    def revalidate(plan, manifest, runtime, output, data):
         assert plan.name == "model.tgrs" and manifest["id"]
         if error:
             raise error

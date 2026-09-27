@@ -7,7 +7,12 @@ on:
         description: Full compiler commit containing the zoo commands
         required: true
         type: string
-        default: 1a46676aa2600ac74f769d93b3c04353a2c8f3f8
+        default: 908b0fd0a8687f45e20594ba95977aa8695c26ff
+      recipe:
+        description: Recipe to build
+        type: choice
+        options: [electricity, kws]
+        default: electricity
       publish:
         description: Upload validated artifacts to HF
         type: boolean
@@ -29,7 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  electricity:
+  build:
     if: ${{ !inputs.card && inputs.validate_runtime == '' }}
     runs-on: ubuntu-latest
     # HF_TOKEN lives in this environment, which only main may deploy from.
@@ -38,6 +43,7 @@ jobs:
     env:
       OMP_NUM_THREADS: '8'
       MKL_NUM_THREADS: '8'
+      RECIPE: ${{ inputs.recipe }}
     steps:
       - uses: actions/checkout@v4
       - name: Validate compiler revision
@@ -56,7 +62,7 @@ jobs:
       - name: Install build dependencies
         run: |
           python -m venv .venv
-          .venv/bin/pip install -c requirements-build.txt -e '.compiler[dev]'
+          .venv/bin/pip install -c requirements-build.txt -e '.compiler[dev]' tflite tflite-micro
           mkdir -p .build
       - name: Check publisher
         run: |
@@ -64,15 +70,15 @@ jobs:
           .venv/bin/python -m pytest tests -q
       - name: Build and evaluate
         working-directory: .build
-        run: ../.venv/bin/python ../recipes/electricity.py --output electricity
+        run: ../.venv/bin/python "../recipes/$RECIPE.py" --output "$RECIPE"
       - name: Prepare catalog update
         if: ${{ !inputs.publish }}
-        run: .venv/bin/python scripts/publish.py .build/electricity/*k --output .build/staged
+        run: .venv/bin/python scripts/publish.py ".build/$RECIPE"/*k --output .build/staged
       - name: Publish catalog update
         if: ${{ inputs.publish }}
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: .venv/bin/python scripts/publish.py .build/electricity/*k --output .build/staged --publish
+        run: .venv/bin/python scripts/publish.py ".build/$RECIPE"/*k --output .build/staged --publish
       - uses: actions/upload-artifact@v4
         with:
           name: compiled-models
@@ -143,7 +149,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m venv .venv
-          .venv/bin/pip install -c requirements-build.txt -e '.compiler[dev]'
+          .venv/bin/pip install -c requirements-build.txt -e '.compiler[dev]' tflite tflite-micro
       - name: Check publisher
         run: .venv/bin/python -m pytest tests -q
       - name: Validate published artifacts on the runtime release
