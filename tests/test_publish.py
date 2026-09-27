@@ -225,3 +225,32 @@ def test_card_needs_the_card_flag_once_models_are_published(build, tmp_path, mon
     monkeypatch.setattr(publisher, "HfApi", lambda: pytest.fail("must not write to HF"))
     with pytest.raises(ValueError, match="unexpected files"):
         publisher.publish(stage, "example/zoo", "a" * 40, {"catalog.json"}, original)
+
+
+def test_source_upload_is_one_guarded_commit(tmp_path, monkeypatch):
+    source = tmp_path / "model.onnx"
+    source.write_bytes(b"trained")
+    sha = publisher.digest(source)
+    calls = []
+
+    def commit(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(commit_url="https://example.test/commit")
+
+    monkeypatch.setattr(publisher, "HfApi", lambda: SimpleNamespace(create_commit=commit))
+    publisher.publish_source(source, "sources/har/model.onnx", sha, "example/zoo", "a" * 40, set())
+    assert len(calls) == 1 and calls[0]["parent_commit"] == "a" * 40
+    assert [op.path_in_repo for op in calls[0]["operations"]] == ["sources/har/model.onnx"]
+
+
+@pytest.mark.parametrize("remote, existing, sha", [
+    ("models/har/model.onnx", set(), None),
+    ("sources/har/model.onnx", {"sources/har/model.onnx"}, None),
+    ("sources/har/model.onnx", set(), "0" * 64),
+])
+def test_source_upload_refuses_other_paths_replacement_and_wrong_hash(tmp_path, monkeypatch, remote, existing, sha):
+    source = tmp_path / "model.onnx"
+    source.write_bytes(b"trained")
+    monkeypatch.setattr(publisher, "HfApi", lambda: pytest.fail("must not write to HF"))
+    with pytest.raises(ValueError):
+        publisher.publish_source(source, remote, sha or publisher.digest(source), "example/zoo", "a" * 40, existing)

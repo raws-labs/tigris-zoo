@@ -184,7 +184,7 @@ def runner(runtime, output, plan, generated, env=None):
          plan, "--format", "core", "-o", generated / "model.c"], env=env)
     executable = generated / "run"
     run(["cc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-I", runtime / "include",
-         "-I", generated, ROOT / "recipes/kws_runner.c", generated / "model.c",
+         "-I", generated, ROOT / "recipes/int8_runner.c", generated / "model.c",
          output / "runtime/libtigris_runtime.a", "-lm", "-o", executable])
     return executable
 
@@ -196,7 +196,7 @@ def runtime_gates(executable, plan, quantized, reference, labels, metrics, fast_
     quantized.tofile(workdir / "inputs.bin")
     report = json.loads(run([executable, plan, workdir / "inputs.bin", workdir / "outputs.bin"]))
     scores = np.fromfile(workdir / "outputs.bin", dtype=np.int8).reshape(reference.shape)
-    if report["clips"] != len(reference):
+    if report["samples"] != len(reference):
         raise ValueError("runner did not process every clip")
     differing = int((scores != reference).any(axis=1).sum())
     accuracy = float((scores.astype(np.int32).argmax(axis=1) == labels).mean())
@@ -247,7 +247,7 @@ def build(args):
     if metrics["reference_accuracy"] < ACCURACY_FLOOR:
         raise ValueError("the source model misses the accuracy floor on this test set")
     recipe_files = {name: digest(ROOT / name) for name in
-                    ("recipes/kws_runner.c", "recipes/tflite_qdq.py", "requirements-build.txt")}
+                    ("recipes/int8_runner.c", "recipes/tflite_qdq.py", "requirements-build.txt")}
     recipe_hash = digest(Path(__file__))
     try:
         recipe_commit = run(["git", "rev-parse", "HEAD"], cwd=ROOT).strip()
