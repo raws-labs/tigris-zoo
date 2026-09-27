@@ -5,6 +5,7 @@ import copy
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -165,6 +166,25 @@ def publish(stage, repository, parent, existing_files, original_catalog, *, card
     )
 
 
+_SOURCE_PATH = re.compile(r"sources/[a-z0-9][a-z0-9_-]*/[a-z0-9][a-z0-9._-]*\Z")
+
+
+def publish_source(path, remote_path, sha256, repository, parent, existing_files):
+    """Upload a recipe input that cannot be rebuilt bit for bit, such as a
+    trained model, once and never replace it. Recipes pin it by SHA-256."""
+    if not _SOURCE_PATH.fullmatch(remote_path):
+        raise ValueError("source files live at sources/<model>/<file>")
+    if remote_path in existing_files:
+        raise ValueError(f"source already published: {remote_path}")
+    if path.is_symlink() or not path.is_file() or digest(path) != sha256:
+        raise ValueError("source file does not match the given SHA-256")
+    return HfApi().create_commit(
+        repo_id=repository, revision="main", parent_commit=parent,
+        operations=[CommitOperationAdd(path_in_repo=remote_path, path_or_fileobj=path)],
+        commit_message="feat: add a recipe source file", commit_description="",
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("builds", nargs="*", type=Path)
@@ -176,9 +196,21 @@ def main():
     parser.add_argument("--update", help="Artifact ID whose catalog metadata should change")
     parser.add_argument("--metadata", type=Path, help="JSON containing runtime constraints and/or tested_runtime_versions")
     parser.add_argument("--card", action="store_true", help="Also upload hub/README.md and hub/LICENSE")
+    parser.add_argument("--source", type=Path, help="Recipe input to upload under --source-path")
+    parser.add_argument("--source-path", help="Repository path of the source, sources/<model>/<file>")
+    parser.add_argument("--source-sha256", help="SHA-256 the recipe pins for the source")
     parser.add_argument("--publish", action="store_true")
     args = parser.parse_args()
     try:
+        if args.source or args.source_path or args.source_sha256:
+            if not (args.source and args.source_path and args.source_sha256):
+                raise ValueError("--source needs --source-path and --source-sha256")
+            if not args.publish:
+                raise ValueError("--source only uploads; add --publish")
+            parent, files, _ = remote_catalog(args.repository)
+            print(publish_source(args.source, args.source_path, args.source_sha256,
+                                 args.repository, parent, files).commit_url)
+            return
         if bool(args.withdraw) != bool(args.reason) or bool(args.update) != bool(args.metadata):
             raise ValueError("pair --withdraw with --reason, and --update with --metadata")
         if not args.builds and not args.withdraw and not args.update and not args.card:

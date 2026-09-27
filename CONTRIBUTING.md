@@ -77,6 +77,16 @@ Add `--publish` only to upload the catalog change. Neither operation changes the
 artifact ID, publication date, plan, manifest, or file checksums. A range match
 alone is not evidence of testing on every runtime in that range.
 
+A recipe input that cannot be rebuilt bit for bit, such as a trained model, is
+uploaded once and pinned by the recipe with its SHA-256:
+
+```bash
+.venv/bin/python scripts/publish.py --source FILE \
+  --source-path sources/MODEL/FILE --source-sha256 SHA256 --output .build/source --publish
+```
+
+The upload refuses paths outside `sources/` and never replaces a published source.
+
 Provide multiple memory budgets when they produce meaningfully different
 execution plans or measured latency. The electricity recipe emits only its
 1 KiB fast-arena variant; a larger arena does not change its execution schedule.
