@@ -3,11 +3,6 @@ name: Build model artifacts
 on:
   workflow_dispatch:
     inputs:
-      compiler_ref:
-        description: Full compiler commit containing the zoo commands
-        required: true
-        type: string
-        default: 908b0fd0a8687f45e20594ba95977aa8695c26ff
       recipe:
         description: Recipe to build
         type: choice
@@ -46,23 +41,13 @@ jobs:
       RECIPE: ${{ inputs.recipe }}
     steps:
       - uses: actions/checkout@v4
-      - name: Validate compiler revision
-        env:
-          COMPILER_REF: ${{ inputs.compiler_ref }}
-        run: '[[ "$COMPILER_REF" =~ ^[0-9a-f]{40}$ ]]'
-      - uses: actions/checkout@v4
-        with:
-          repository: raws-labs/tigris
-          ref: ${{ inputs.compiler_ref }}
-          path: .compiler
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install build dependencies
         run: |
           python -m venv .venv
-          .venv/bin/pip install -c requirements-build.txt -e '.compiler[dev]' tflite tflite-micro pillow
+          .venv/bin/pip install -c requirements-build.txt 'tigris-ml[dev]' tflite tflite-micro pillow
           mkdir -p .build
       - name: Check publisher
         run: |
@@ -104,23 +89,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Validate compiler revision
-        env:
-          COMPILER_REF: ${{ inputs.compiler_ref }}
-        run: '[[ "$COMPILER_REF" =~ ^[0-9a-f]{40}$ ]]'
-      - uses: actions/checkout@v4
-        with:
-          repository: raws-labs/tigris
-          ref: ${{ inputs.compiler_ref }}
-          path: .compiler
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install dependencies
         run: |
           python -m venv .venv
-          .venv/bin/pip install -c requirements-build.txt -e '.compiler[dev]'
+          .venv/bin/pip install -c requirements-build.txt 'tigris-ml[dev]'
       - name: Check publisher
         run: .venv/bin/python -m pytest tests -q
       - name: Prepare card update
@@ -144,24 +119,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate inputs
-        env:
-          COMPILER_REF: ${{ inputs.compiler_ref }}
-        run: |
-          [[ "$COMPILER_REF" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$RUNTIME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-      - uses: actions/checkout@v4
-        with:
-          repository: raws-labs/tigris
-          ref: ${{ inputs.compiler_ref }}
-          path: .compiler
-          fetch-depth: 0
+        run: '[[ "$RUNTIME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install dependencies
         run: |
           python -m venv .venv
-          .venv/bin/pip install -c requirements-build.txt -e '.compiler[dev]' tflite tflite-micro pillow
+          # Compiler and runtime release as a pair, so the runtime under test is
+          # validated with the code generator released alongside it.
+          .venv/bin/pip install -c requirements-build.txt "tigris-ml[dev]==$RUNTIME" tflite tflite-micro pillow
       - name: Check publisher
         run: .venv/bin/python -m pytest tests -q
       - name: Restore pinned downloads
