@@ -6,11 +6,9 @@ import io
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tarfile
-import urllib.request
 import wave
 
 import numpy as np
@@ -22,9 +20,9 @@ from tigris.emitters.binary.reader import read_binary_plan
 from tigris.zoo import digest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from int8_common import ROOT, checkout, fetch, recipe_commit, run, runner  # noqa: E402
 from tflite_qdq import convert  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
 COMPILER = "908b0fd0a8687f45e20594ba95977aa8695c26ff"
 COMPILER_VERSION = "0.11.3"
 RUNTIME = "96ed57e1d9122db779f9e8d388a81098e0e8f27c"
@@ -39,39 +37,6 @@ LABELS = ["down", "go", "left", "no", "off", "on", "right", "stop", "up", "yes",
 ACCURACY_FLOOR = 0.90
 BUDGET = 16 * 1024
 INPUT_SHAPE = [1, 49, 10, 1]
-
-
-def run(args, **kwargs):
-    result = subprocess.run([str(arg) for arg in args], text=True, capture_output=True, **kwargs)
-    if result.returncode:
-        raise ValueError(f"command failed ({result.returncode}): {args[0]}\n{result.stdout}\n{result.stderr}")
-    return result.stdout
-
-
-def checkout(path, repository, revision):
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        run(["git", "clone", "--no-checkout", repository, path])
-        run(["git", "-C", path, "checkout", "--detach", revision])
-    if run(["git", "-C", path, "rev-parse", "HEAD"]).strip() != revision:
-        raise ValueError(f"source checkout must be at {revision}")
-    if run(["git", "-C", path, "status", "--porcelain"]).strip():
-        raise ValueError("source checkout must be clean")
-    return path.resolve()
-
-
-def fetch(url, path, sha):
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".part")
-        with urllib.request.urlopen(url, timeout=120) as response, temporary.open("wb") as target:
-            shutil.copyfileobj(response, target)
-        if digest(temporary) != sha:
-            raise ValueError(f"download checksum mismatch: {url}")
-        temporary.replace(path)
-    if digest(path) != sha:
-        raise ValueError(f"checksum mismatch: {path}")
-    return path
 
 
 def _mel_matrix(bins=257, mels=40, rate=16000, low=20.0, high=4000.0):
@@ -175,20 +140,6 @@ def micro_version():
     return version("tflite-micro")
 
 
-def runner(runtime, output, plan, generated, env=None):
-    """Build the runtime library and a runner linked with the plan's generated core."""
-    run(["cmake", "-S", runtime, "-B", output / "runtime", "-DCMAKE_BUILD_TYPE=Release"])
-    run(["cmake", "--build", output / "runtime", "--target", "tigris_runtime", "--parallel", "8"])
-    generated.mkdir()
-    run([sys.executable, "-c", "from tigris.cli import main; main()", "codegen",
-         plan, "--format", "core", "-o", generated / "model.c"], env=env)
-    executable = generated / "run"
-    run(["cc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-I", runtime / "include",
-         "-I", generated, ROOT / "recipes/int8_runner.c", generated / "model.c",
-         output / "runtime/libtigris_runtime.a", "-lm", "-o", executable])
-    return executable
-
-
 def runtime_gates(executable, plan, quantized, reference, labels, metrics, fast_bytes, workdir):
     """The acceptance gates for a plan on one runtime: int8 scores identical to
     TFLite Micro on every clip, accuracy at or above the floor, the fast budget,
@@ -247,14 +198,9 @@ def build(args):
     if metrics["reference_accuracy"] < ACCURACY_FLOOR:
         raise ValueError("the source model misses the accuracy floor on this test set")
     recipe_files = {name: digest(ROOT / name) for name in
-                    ("recipes/int8_runner.c", "recipes/tflite_qdq.py", "requirements-build.txt")}
+                    ("recipes/int8_common.py", "recipes/int8_runner.c", "recipes/tflite_qdq.py",
+                     "requirements-build.txt")}
     recipe_hash = digest(Path(__file__))
-    try:
-        recipe_commit = run(["git", "rev-parse", "HEAD"], cwd=ROOT).strip()
-        if run(["git", "status", "--porcelain"], cwd=ROOT).strip():
-            recipe_commit = None
-    except ValueError:
-        recipe_commit = None
     env = dict(os.environ, PYTHONPATH=str(compiler / "src"))
     directory = output / f"{BUDGET // 1024}k"
     directory.mkdir()
@@ -336,7 +282,7 @@ def build(args):
         "compiler": {"version": COMPILER_VERSION, "commit": COMPILER},
         "source": {"model": MODEL, "model_sha256": MODEL_SHA, "dataset": DATASET, "dataset_sha256": DATASET_SHA,
                    "onnx_sha256": digest(output / "model.onnx"), "recipe": "recipes/kws.py",
-                   "recipe_sha256": recipe_hash, "recipe_commit": recipe_commit, "recipe_files": recipe_files,
+                   "recipe_sha256": recipe_hash, "recipe_commit": recipe_commit(), "recipe_files": recipe_files,
                    "numpy": np.__version__, "onnx": onnx.__version__, "tflite-micro": micro_version()},
         "evaluation": evaluation,
         "files": [{"path": p.name, "size": p.stat().st_size, "sha256": digest(p)}
