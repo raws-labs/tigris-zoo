@@ -13,13 +13,13 @@ import tarfile
 import numpy as np
 import onnx
 from PIL import Image
-from tflite_micro.python.tflite_micro import runtime as micro
 
 from tigris.emitters.binary.reader import read_binary_plan
 from tigris.zoo import digest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from int8_common import ROOT, checkout, fetch, recipe_commit, run, runner  # noqa: E402
+from int8_common import (ROOT, checkout, example_image, fetch, image_references, micro_version,  # noqa: E402
+                         recipe_commit, run, runner)
 from tflite_qdq import convert  # noqa: E402
 
 COMPILER = "908b0fd0a8687f45e20594ba95977aa8695c26ff"
@@ -50,30 +50,10 @@ def test_images(archive):
     return batch[b"data"].reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1).copy(), np.array(batch[b"labels"])
 
 
-def example_image(path):
-    """The photograph center-cropped to a square and box-filtered to 32 x 32."""
-    image = Image.open(path).convert("RGB")
-    width, height = image.size
-    side = min(width, height)
-    left, top = (width - side) // 2, (height - side) // 2
-    square = image.crop((left, top, left + side, top + side))
-    return np.asarray(square.resize((32, 32), Image.Resampling.BOX), dtype=np.uint8)
 
 
-def references(model_path, images):
-    """TFLite Micro's int8 scores for each uint8 image; the input is pixel - 128."""
-    interpreter = micro.Interpreter.from_file(str(model_path), arena_size=256 * 1024)
-    outputs = []
-    for image in images:
-        interpreter.set_input((image.astype(np.int16) - 128).astype(np.int8)[None], 0)
-        interpreter.invoke()
-        outputs.append(interpreter.get_output(0).reshape(-1).copy())
-    return np.array(outputs, dtype=np.int8)
 
 
-def micro_version():
-    from importlib.metadata import version
-    return version("tflite-micro")
 
 
 def model(output, data):
@@ -82,7 +62,7 @@ def model(output, data):
     archive = fetch(DATASET, data / "cifar-10-python.tar.gz", DATASET_SHA)
     onnx.save(convert(tflite_path.read_bytes(), "resnet8"), output / "model.onnx")
     images, labels = test_images(archive)
-    reference = references(tflite_path, images)
+    reference = image_references(tflite_path, images)
     metrics = {
         "test_images": len(labels), "labels": LABELS,
         "reference": "TFLite Micro reference kernels", "reference_package": f"tflite-micro {micro_version()}",
@@ -171,9 +151,9 @@ def build(args):
     evaluation = runtime_gates(executable, directory / "model.tgrs", images, reference, labels, metrics,
                                BUDGET, output)
 
-    example = example_image(photo)
+    example = example_image(photo, 32)
     example.astype("<f4").reshape(INPUT_SHAPE).tofile(directory / "example-input.bin")
-    example_scores = references(tflite_path, example[None])[0]
+    example_scores = image_references(tflite_path, example[None])[0]
     ((example_scores.astype(np.float32) + 128) / 256).astype("<f4").tofile(directory / "example-output.bin")
     Image.fromarray(example).save(directory / "example.png", optimize=False)
     (directory / "evaluation.json").write_text(json.dumps(evaluation, indent=2) + "\n")

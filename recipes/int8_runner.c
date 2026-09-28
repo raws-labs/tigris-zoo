@@ -6,8 +6,8 @@
 #include "model.h"
 
 /* Runs a plan with one int8 input and one int8 output over a batch of samples. */
-#define MAX_INPUT_BYTES 4096u
-#define SLOW_BYTES 8192u
+#define MAX_INPUT_BYTES 65536u
+#define SLOW_BYTES 262144u
 
 static int8_t input[MAX_INPUT_BYTES];
 static uint32_t input_bytes;
