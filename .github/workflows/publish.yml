@@ -11,7 +11,7 @@ on:
       recipe:
         description: Recipe to build
         type: choice
-        options: [electricity, har, kws, resnet8]
+        options: [electricity, har, kws, resnet8, vww]
         default: electricity
       publish:
         description: Upload validated artifacts to HF

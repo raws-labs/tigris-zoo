@@ -1,10 +1,12 @@
-"""Source checkouts, pinned downloads and the int8 runner shared by the int8 recipes."""
+"""Checkouts, pinned downloads, the int8 runner and TFLite Micro references for the int8 recipes."""
 
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import urllib.request
+
+import numpy as np
 
 from tigris.zoo import digest
 
@@ -66,3 +68,31 @@ def runner(runtime, output, plan, generated, env=None):
          "-I", generated, ROOT / "recipes/int8_runner.c", generated / "model.c",
          output / "runtime/libtigris_runtime.a", "-lm", "-o", executable])
     return executable
+
+
+def example_image(path, size):
+    """A photograph center-cropped to a square and box-filtered to size x size RGB."""
+    from PIL import Image
+    image = Image.open(path).convert("RGB")
+    width, height = image.size
+    side = min(width, height)
+    left, top = (width - side) // 2, (height - side) // 2
+    square = image.crop((left, top, left + side, top + side))
+    return np.asarray(square.resize((size, size), Image.Resampling.BOX), dtype=np.uint8)
+
+
+def image_references(model_path, images):
+    """TFLite Micro's int8 scores for uint8 NHWC images whose int8 input is pixel - 128."""
+    from tflite_micro.python.tflite_micro import runtime as micro
+    interpreter = micro.Interpreter.from_file(str(model_path), arena_size=1024 * 1024)
+    outputs = []
+    for image in images:
+        interpreter.set_input((image.astype(np.int16) - 128).astype(np.int8)[None], 0)
+        interpreter.invoke()
+        outputs.append(interpreter.get_output(0).reshape(-1).copy())
+    return np.array(outputs, dtype=np.int8)
+
+
+def micro_version():
+    from importlib.metadata import version
+    return version("tflite-micro")
