@@ -32,16 +32,28 @@ def checkout(path, repository, revision):
     return path.resolve()
 
 
-def fetch(url, path, sha):
+def fetch(url, path, sha, mirrors=()):
+    """Download a pinned file once; each mirror is tried in turn when a source
+    fails or serves other bytes."""
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".part")
-        request = urllib.request.Request(url, headers={"User-Agent": "tigris-zoo-recipe"})
-        with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as target:
-            shutil.copyfileobj(response, target)
-        if digest(temporary) != sha:
-            raise ValueError(f"download checksum mismatch: {url}")
-        temporary.replace(path)
+        errors = []
+        for source in (url, *mirrors):
+            request = urllib.request.Request(source, headers={"User-Agent": "tigris-zoo-recipe"})
+            try:
+                with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as target:
+                    shutil.copyfileobj(response, target)
+            except OSError as exc:
+                errors.append(f"{source}: {exc}")
+                continue
+            if digest(temporary) == sha:
+                temporary.replace(path)
+                break
+            errors.append(f"{source}: download checksum mismatch")
+        else:
+            temporary.unlink(missing_ok=True)
+            raise ValueError("no source served the pinned file:\n" + "\n".join(errors))
     if digest(path) != sha:
         raise ValueError(f"checksum mismatch: {path}")
     return path

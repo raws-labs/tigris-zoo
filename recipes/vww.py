@@ -31,6 +31,8 @@ MODEL = ("https://raw.githubusercontent.com/mlcommons/tiny/4addd0fa08d216e206376
 MODEL_SHA = "597a384c8c2c8a1276f04702f25013b7838f2f814f1ca7c174d295b73e3d6b7b"
 DATASET = "https://www.silabs.com/public/files/github/machine_learning/benchmarks/datasets/vw_coco2014_96.tar.gz"
 DATASET_SHA = "f8746b9e44f8a7a4293f73be9ba6e8da9239fe69798d42364aae62b915cfab58"
+DATASET_MIRRORS = ("https://github.com/retroSoC/artifact/releases/download/npu-vww-dataset-f8746b9e44f8/"
+                   "vw_coco2014_96.tar.gz",)
 # The example is a public-domain photograph; the COCO-derived images are used
 # for evaluation only and not redistributed.
 EXAMPLE = "https://upload.wikimedia.org/wikipedia/commons/d/d9/STS-135_Astrovan_pre-flight_photo.jpg"
@@ -64,7 +66,7 @@ def test_images(archive):
 def model(output, data):
     """The source model, its ONNX conversion, and the test images with references."""
     tflite_path = fetch(MODEL, data / "vww_96_int8.tflite", MODEL_SHA)
-    archive = fetch(DATASET, data / "vw_coco2014_96.tar.gz", DATASET_SHA)
+    archive = fetch(DATASET, data / "vw_coco2014_96.tar.gz", DATASET_SHA, DATASET_MIRRORS)
     onnx.save(convert(tflite_path.read_bytes(), "vww"), output / "model.onnx")
     images, labels = test_images(archive)
     reference = image_references(tflite_path, images)
