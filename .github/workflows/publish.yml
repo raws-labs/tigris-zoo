@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     # HF_TOKEN lives in this environment, which only main may deploy from.
     environment: ${{ inputs.publish && 'hf-publish' || '' }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       OMP_NUM_THREADS: '8'
       MKL_NUM_THREADS: '8'
@@ -54,7 +54,8 @@ jobs:
           .venv/bin/ruff check --select E4,E7,E9,F recipes scripts tests
           .venv/bin/python -m pytest tests -q
       - name: Restore pinned downloads
-        uses: actions/cache@v4
+        id: downloads
+        uses: actions/cache/restore@v4
         with:
           # Recipes verify every file against its pinned SHA-256 before use.
           path: |
@@ -68,6 +69,20 @@ jobs:
       - name: Build and evaluate
         working-directory: .build
         run: ../.venv/bin/python "../recipes/$RECIPE.py" --output "$RECIPE"
+      # Saved even when a later step fails: a cold download of the pinned
+      # datasets can take most of an hour (CIFAR-10 took 53 minutes once).
+      - name: Save pinned downloads
+        if: ${{ always() && steps.downloads.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .build/*.zip
+            .build/*.tar.gz
+            .build/*.tflite
+            .build/*.onnx
+            .build/*.jpg
+          key: recipe-data-${{ hashFiles('recipes/*.py') }}
       - name: Prepare catalog update
         if: ${{ !inputs.publish }}
         run: .venv/bin/python scripts/publish.py ".build/$RECIPE"/*k --output .build/staged
@@ -110,7 +125,7 @@ jobs:
   validate:
     if: ${{ inputs.validate_runtime != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     environment: ${{ inputs.publish && 'hf-publish' || '' }}
     env:
       OMP_NUM_THREADS: '8'
@@ -133,7 +148,8 @@ jobs:
       - name: Check publisher
         run: .venv/bin/python -m pytest tests -q
       - name: Restore pinned downloads
-        uses: actions/cache@v4
+        id: downloads
+        uses: actions/cache/restore@v4
         with:
           # Recipes verify every file against its pinned SHA-256 before use.
           path: |
@@ -146,6 +162,20 @@ jobs:
           restore-keys: recipe-data-
       - name: Validate published artifacts on the runtime release
         run: .venv/bin/python scripts/validate_runtime.py --runtime "$RUNTIME" --output .build/validate
+      # Saved even when a later step fails: a cold download of the pinned
+      # datasets can take most of an hour (CIFAR-10 took 53 minutes once).
+      - name: Save pinned downloads
+        if: ${{ always() && steps.downloads.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .build/*.zip
+            .build/*.tar.gz
+            .build/*.tflite
+            .build/*.onnx
+            .build/*.jpg
+          key: recipe-data-${{ hashFiles('recipes/*.py') }}
       - uses: actions/upload-artifact@v4
         with:
           name: runtime-validation
