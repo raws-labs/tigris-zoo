@@ -116,6 +116,7 @@ jobs:
       OMP_NUM_THREADS: '8'
       MKL_NUM_THREADS: '8'
       RUNTIME: ${{ inputs.validate_runtime }}
+      PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v4
       - name: Validate inputs

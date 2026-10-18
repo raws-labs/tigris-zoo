@@ -50,6 +50,7 @@ def validate(zoo, artifacts, release, output, runtime, data):
             continue
         if not select([artifact], runtime=release):
             raise ValueError(f"{artifact['id']}: runtime {release} is outside its declared range")
+        print(f"{artifact['id']}: validating on runtime {release}", flush=True)
         workdir = output / artifact["id"]
         download = workdir / "download"
         zoo.fetch(artifact, download)
