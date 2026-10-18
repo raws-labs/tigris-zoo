@@ -6,8 +6,8 @@ from onnx import TensorProto, helper, numpy_helper
 import pytest
 from click.testing import CliRunner
 
-from tigris import SCHEMA_VERSION
 from tigris.cli import cli
+from tigris.emitters.binary.reader import read_binary_plan
 from tigris.zoo import digest
 
 
@@ -26,13 +26,15 @@ def build(tmp_path):
     onnx.save(model, source)
     result = CliRunner().invoke(cli, ["compile", str(source), "--xip", "-m", "1K", "-o", str(directory / "model.tgrs")])
     assert result.exit_code == 0, result.output
+    # The compiler emits the oldest schema that holds the plan, not always SCHEMA_VERSION.
+    schema = read_binary_plan((directory / "model.tgrs").read_bytes())["version"]
     evaluation = {"parity_passed": True, "test_windows": 1, "tested_runtime_versions": ["0.9.1"]}
     for name in ("readme.md", "license.txt", "example-input.bin", "example-output.bin"):
         (directory / name).write_bytes(b"example")
     (directory / "evaluation.json").write_text(json.dumps(evaluation))
     metadata = {
         "format_version": 1, "id": "example-a", "model": "example", "category": "regression",
-        "quantization": "float32", "schema": SCHEMA_VERSION, "backends": ["reference"],
+        "quantization": "float32", "schema": schema, "backends": ["reference"],
         "runtime": {"min": "0.9.1", "max": None},
         "compatibility_note": "Reference backend requirements; no known upper cutoff.",
         "memory": {"fast_bytes": 1024, "slow_bytes": 0, "flash_bytes": (directory / "model.tgrs").stat().st_size},
