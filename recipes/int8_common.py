@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 
 import numpy as np
@@ -41,12 +42,17 @@ def fetch(url, path, sha, mirrors=()):
         errors = []
         for source in (url, *mirrors):
             request = urllib.request.Request(source, headers={"User-Agent": "tigris-zoo-recipe"})
+            print(f"fetching {source}", file=sys.stderr, flush=True)
+            started = time.monotonic()
             try:
                 with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as target:
                     shutil.copyfileobj(response, target)
             except OSError as exc:
+                print(f"  failed after {time.monotonic() - started:.0f} s: {exc}", file=sys.stderr, flush=True)
                 errors.append(f"{source}: {exc}")
                 continue
+            print(f"  {temporary.stat().st_size} bytes in {time.monotonic() - started:.0f} s",
+                  file=sys.stderr, flush=True)
             if digest(temporary) == sha:
                 temporary.replace(path)
                 break
