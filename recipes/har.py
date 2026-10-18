@@ -71,6 +71,8 @@ def model(output, data):
     exact = ((quantized.astype(np.float32) - zero_point) * np.float32(scale)).astype(np.float32)
     options = ort.SessionOptions()
     options.intra_op_num_threads = min(8, int(os.environ.get("OMP_NUM_THREADS", "1")))
+    # Optimization fuses the QDQ graph into integer kernels whose results depend on the CPU.
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
     session = ort.InferenceSession(str(source), options, providers=["CPUExecutionProvider"])
     reference = np.concatenate([session.run(None, {"input": row[None]})[0] for row in exact])
     metrics = {
