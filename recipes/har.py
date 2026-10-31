@@ -6,7 +6,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 
 import numpy as np
@@ -18,7 +17,7 @@ from tigris.emitters.binary.reader import read_binary_plan
 from tigris.zoo import digest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from int8_common import ROOT, checkout, fetch, recipe_commit, run, runner  # noqa: E402
+from int8_common import ROOT, checkout, fetch, recipe_commit, run, runner, slow_arena_gate  # noqa: E402
 from har_data import (CHANNELS, DATASET, DATASET_SHA, LABELS, baseline_accuracy, load,  # noqa: E402
                       normalization, normalize)
 
@@ -102,7 +101,7 @@ def plan_layout(plan_path, quantized):
 def runtime_gates(executable, plan, quantized, reference, labels, metrics, fast_bytes, workdir):
     """The acceptance gates for a plan on one runtime: every logit within one
     LSB of ONNX Runtime on every window, higher accuracy than the baseline
-    classifier, the fast budget, and refusal of a slow arena one byte short.
+    classifier, the fast budget, and the measured slow-arena peak as the minimum.
     Raises on any failure."""
     stored, _ = plan_layout(plan, quantized)
     stored.tofile(workdir / "inputs.bin")
@@ -129,11 +128,7 @@ def runtime_gates(executable, plan, quantized, reference, labels, metrics, fast_
         raise ValueError(f"runtime logits differ from ONNX Runtime by up to {int(lsb.max())} LSB")
     if accuracy <= metrics["baseline_accuracy"] or report["fast_peak"] > fast_bytes:
         raise ValueError("runtime accuracy or memory gate failed")
-    insufficient = subprocess.run([str(executable), str(plan), str(workdir / "inputs.bin"),
-                                   str(workdir / "short.bin"), str(report["slow_peak"] - 1)],
-                                  capture_output=True)
-    if insufficient.returncode not in (8, 9):
-        raise ValueError("slow-arena lower-bound check failed")
+    slow_arena_gate(executable, plan, workdir, report["slow_peak"])
     return evaluation
 
 

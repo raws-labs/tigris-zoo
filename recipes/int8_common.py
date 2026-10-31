@@ -88,6 +88,23 @@ def runner(runtime, output, plan, generated, env=None):
     return executable
 
 
+def slow_arena_gate(executable, plan, workdir, slow_peak):
+    """The measured slow-arena peak is the minimum the plan needs: a slow arena one
+    byte smaller is refused, and a plan that used no slow memory runs without a slow
+    arena and writes the same outputs. Raises on failure."""
+    inputs, outputs = workdir / "inputs.bin", workdir / "outputs.bin"
+    if slow_peak:
+        refused = subprocess.run([str(executable), str(plan), str(inputs), str(workdir / "short.bin"),
+                                  str(slow_peak - 1)], capture_output=True)
+        if refused.returncode not in (8, 9):
+            raise ValueError("slow-arena lower-bound check failed")
+        return
+    without = subprocess.run([str(executable), str(plan), str(inputs), str(workdir / "no-slow.bin"), "0"],
+                             capture_output=True)
+    if without.returncode or (workdir / "no-slow.bin").read_bytes() != outputs.read_bytes():
+        raise ValueError("plan with no slow-arena use failed or changed output without a slow arena")
+
+
 def example_image(path, size):
     """A photograph center-cropped to a square and box-filtered to size x size RGB."""
     from PIL import Image

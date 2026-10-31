@@ -6,7 +6,6 @@ import io
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 import tarfile
 import wave
@@ -20,7 +19,7 @@ from tigris.emitters.binary.reader import read_binary_plan
 from tigris.zoo import digest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from int8_common import ROOT, checkout, fetch, recipe_commit, run, runner  # noqa: E402
+from int8_common import ROOT, checkout, fetch, recipe_commit, run, runner, slow_arena_gate  # noqa: E402
 from tflite_qdq import convert  # noqa: E402
 
 COMPILER = "908b0fd0a8687f45e20594ba95977aa8695c26ff"
@@ -143,7 +142,7 @@ def micro_version():
 def runtime_gates(executable, plan, quantized, reference, labels, metrics, fast_bytes, workdir):
     """The acceptance gates for a plan on one runtime: int8 scores identical to
     TFLite Micro on every clip, accuracy at or above the floor, the fast budget,
-    and refusal of a slow arena one byte short. Raises on any failure."""
+    and the measured slow-arena peak as the minimum. Raises on any failure."""
     quantized.tofile(workdir / "inputs.bin")
     report = json.loads(run([executable, plan, workdir / "inputs.bin", workdir / "outputs.bin"]))
     scores = np.fromfile(workdir / "outputs.bin", dtype=np.int8).reshape(reference.shape)
@@ -161,11 +160,7 @@ def runtime_gates(executable, plan, quantized, reference, labels, metrics, fast_
         raise ValueError(f"runtime scores differ from TFLite Micro on {differing} clips")
     if accuracy < ACCURACY_FLOOR or report["fast_peak"] > fast_bytes:
         raise ValueError("runtime accuracy or memory gate failed")
-    insufficient = subprocess.run([str(executable), str(plan), str(workdir / "inputs.bin"),
-                                   str(workdir / "short.bin"), str(report["slow_peak"] - 1)],
-                                  capture_output=True)
-    if insufficient.returncode not in (8, 9):
-        raise ValueError("slow-arena lower-bound check failed")
+    slow_arena_gate(executable, plan, workdir, report["slow_peak"])
     return evaluation
 
 
