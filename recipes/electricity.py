@@ -167,8 +167,8 @@ def runner(runtime, output, plan, generated, env=None):
 
 def runtime_gates(executable, plan, inputs, outputs, test, metrics, memory, workdir):
     """The acceptance gates for a plan on one runtime: ONNX parity on every held-out
-    window, task error equal to ONNX, the fast budget, and refusal of a slow arena
-    one byte short. Raises on any failure."""
+    window, task error equal to ONNX, the fast budget, and the measured slow-arena
+    peak as the minimum. Raises on any failure."""
     # This recipe has linear rank-2 interfaces, so no boundary transpose applies.
     predictions, peaks, slow_usage = [], [], []
     for row, reference in zip(inputs, outputs):
@@ -189,10 +189,17 @@ def runtime_gates(executable, plan, inputs, outputs, test, metrics, memory, work
                       host_executor_workspace_bytes=report["workspace_bytes"])
     if max(peaks) > memory["fast_bytes"] or abs(evaluation["runtime_mae_kw"] - metrics["onnx_mae_kw"]) > 1e-4:
         raise ValueError("runtime memory or task-quality gate failed")
-    insufficient = subprocess.run([str(executable), str(plan), str(workdir / "input.bin"),
-                                   str(workdir / "output.bin"), str(memory["slow_bytes"] - 1)], capture_output=True)
-    if insufficient.returncode != 9:
-        raise ValueError("slow-arena lower-bound check failed")
+    slow_peak = max(slow_usage)
+    if slow_peak:
+        insufficient = subprocess.run([str(executable), str(plan), str(workdir / "input.bin"),
+                                       str(workdir / "short.bin"), str(slow_peak - 1)], capture_output=True)
+        if insufficient.returncode != 9:
+            raise ValueError("slow-arena lower-bound check failed")
+    else:
+        without = subprocess.run([str(executable), str(plan), str(workdir / "input.bin"),
+                                  str(workdir / "no-slow.bin"), "0"], capture_output=True)
+        if without.returncode or (workdir / "no-slow.bin").read_bytes() != (workdir / "output.bin").read_bytes():
+            raise ValueError("plan with no slow-arena use failed or changed output without a slow arena")
     return evaluation
 
 
@@ -245,7 +252,7 @@ def build(args):
         raise ValueError("unexpected compiled plan contract")
     executable = runner(runtime, output, directory / "model.tgrs", output / f"codegen-{budget}", env=env)
     evaluation = runtime_gates(executable, directory / "model.tgrs", inputs, references_out, test, metrics,
-                               {"fast_bytes": budget, "slow_bytes": 768}, output)
+                               {"fast_bytes": budget}, output)
     inputs[0].tofile(directory / "example-input.bin")
     references_out[0].astype("<f4").tofile(directory / "example-output.bin")
     origin = test[6][0]
@@ -282,7 +289,7 @@ def build(args):
         "followed by 24 target rows. The binary example files contain normalized\n"
         "model I/O, selected without consulting prediction error.\n\n"
         "The plan uses float32 reference kernels and weights read in place from\n"
-        "flash. The 768-byte slow arena includes input and output storage. Arena\n"
+        f"flash. The {evaluation['measured_slow_bytes']}-byte slow arena includes input and output storage. Arena\n"
         "requirements exclude external I/O staging, stack, runtime structures,\n"
         "and executor workspace. The supplied runtime release was tested on the\n"
         "host; no hardware latency measurements are claimed. Runtime 0.9.1 was tested.\n"
@@ -296,7 +303,7 @@ def build(args):
         "quantization": "float32", "backends": ["reference"],
         "runtime": {"min": "0.9.1", "max": None},
         "compatibility_note": "Schema 7 with float32 Gemm on the reference backend; baseline runtime 0.9.1, no known upper cutoff.",
-        "memory": {"fast_bytes": budget, "slow_bytes": 768, "flash_bytes": (directory / "model.tgrs").stat().st_size},
+        "memory": {"fast_bytes": budget, "slow_bytes": evaluation["measured_slow_bytes"], "flash_bytes": (directory / "model.tgrs").stat().st_size},
         "inputs": [{"name": "input", "shape": [1, 168], "dtype": "float32"}],
         "outputs": [{"name": "output", "shape": [1, 24], "dtype": "float32"}],
         "license": "apache-2.0 AND cc-by-4.0",

@@ -5,6 +5,14 @@
 
 #include "model.h"
 
+/* From runtime 0.13.0, which introduced the version macros, the generated init
+ * and reset return tigris_error_t; earlier releases return tigris_mem_status_t. */
+#ifdef TIGRIS_RUNTIME_VERSION_MAJOR
+#define CODEGEN_OK TIGRIS_OK
+#else
+#define CODEGEN_OK TIGRIS_MEM_OK
+#endif
+
 /* Runs a plan with one int8 input and one int8 output over a batch of samples. */
 #define MAX_INPUT_BYTES 65536u
 #define SLOW_BYTES 262144u
@@ -25,7 +33,7 @@ static void initialize(void *data, uint32_t size, uint16_t index, void *context)
 }
 
 /* run PLAN INPUTS OUTPUTS [SLOW_BYTES]: INPUTS holds consecutive int8 samples,
- * OUTPUTS receives the int8 output of each. */
+ * OUTPUTS receives the int8 output of each. SLOW_BYTES 0 runs without a slow arena. */
 int main(int argc, char **argv)
 {
     if (argc != 4 && argc != 5)
@@ -62,12 +70,12 @@ int main(int argc, char **argv)
         return 6;
     tigris_mem_t memory;
     if (tigris_codegen_init(&plan, &memory, tensors, TIGRIS_CODEGEN_TENSOR_CAPACITY,
-                            fast, sizeof(fast), slow, slow_size, NULL, NULL) != TIGRIS_MEM_OK)
+                            fast, sizeof(fast), slow_size ? slow : NULL, slow_size, NULL, NULL) != CODEGEN_OK)
         return 8;
     uint32_t samples = 0, slow_peak = 0;
     while (fread(input, 1, input_bytes, inputs) == input_bytes) {
         tigris_exec_stats_t stats;
-        if (tigris_codegen_reset(&plan, &memory, initialize, NULL) != TIGRIS_MEM_OK ||
+        if (tigris_codegen_reset(&plan, &memory, initialize, NULL) != CODEGEN_OK ||
             tigris_codegen_run_with_workspace_buffer(&plan, &memory, &stats, workspace,
                                                     sizeof(workspace)) != TIGRIS_EXEC_OK)
             return 9;

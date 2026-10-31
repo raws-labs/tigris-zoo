@@ -9,5 +9,5 @@ huggingface-hub==1.33.0
 packaging==26.3
 flatbuffers==25.12.19
 tflite==2.18.0
-tflite-micro==0.dev20260925222358
+tflite-micro==0.dev20261023044614
 pillow==12.3.0

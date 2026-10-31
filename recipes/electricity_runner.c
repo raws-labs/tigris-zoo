@@ -5,6 +5,14 @@
 
 #include "model.h"
 
+/* From runtime 0.13.0, which introduced the version macros, the generated init
+ * and reset return tigris_error_t; earlier releases return tigris_mem_status_t. */
+#ifdef TIGRIS_RUNTIME_VERSION_MAJOR
+#define CODEGEN_OK TIGRIS_OK
+#else
+#define CODEGEN_OK TIGRIS_MEM_OK
+#endif
+
 static float input[168];
 static _Alignas(32) uint8_t fast[TIGRIS_CODEGEN_CORE_FAST_ARENA_BYTES];
 static _Alignas(32) uint8_t slow[sizeof(input) + 24 * sizeof(float)];
@@ -53,7 +61,7 @@ int main(int argc, char **argv)
     }
     tigris_mem_t memory;
     if (tigris_codegen_init(&plan, &memory, tensors, TIGRIS_CODEGEN_TENSOR_CAPACITY,
-                            fast, sizeof(fast), slow, slow_size, initialize, NULL) != TIGRIS_MEM_OK)
+                            fast, sizeof(fast), slow_size ? slow : NULL, slow_size, initialize, NULL) != CODEGEN_OK)
         return 8;
     tigris_exec_stats_t stats;
     if (tigris_codegen_run_with_workspace_buffer(&plan, &memory, &stats, workspace,
