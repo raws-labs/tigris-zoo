@@ -43,8 +43,8 @@ def input_quantization(model):
 
 
 def quantize(windows, scale, zero_point):
-    """The runtime's float32 input conversion: divide in float32, round half
-    away from zero, saturate."""
+    """The runtime's float32 input conversion for a plan before schema 12:
+    divide in float32, round half away from zero, saturate."""
     scaled = windows / np.float32(scale)
     return np.clip(np.trunc(scaled + np.copysign(np.float32(0.5), scaled)) + zero_point,
                    -128, 127).astype(np.int8)
