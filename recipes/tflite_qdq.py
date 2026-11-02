@@ -181,5 +181,7 @@ def convert(tflite_bytes, name):
         helper.make_graph(nodes, name, [graph_input], [graph_output], initializers),
         opset_imports=[helper.make_opsetid("", 17)])
     onnx_model.ir_version = 8
+    # TFLite's QUANTIZE rounds float32 ties away from zero; ONNX's rounds them to even.
+    helper.set_model_props(onnx_model, {"tigris.quantize_rounding": "half_away_from_zero"})
     onnx.checker.check_model(onnx_model)
     return onnx_model
