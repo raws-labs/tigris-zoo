@@ -19,7 +19,7 @@ from tigris.zoo import digest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from int8_common import (ROOT, checkout, example_image, fetch, image_references, micro_version,  # noqa: E402
                          recipe_commit, run, runner, slow_arena_gate)
-from tflite_qdq import convert  # noqa: E402
+from tflite_qdq import QUANTIZE_ROUNDING, convert, recorded_props  # noqa: E402
 
 COMPILER = "908b0fd0a8687f45e20594ba95977aa8695c26ff"
 COMPILER_VERSION = "0.11.3"
@@ -62,11 +62,11 @@ def test_images(archive):
     return np.array(images), np.array(labels)
 
 
-def model(output, data):
+def model(output, data, props):
     """The source model, its ONNX conversion, and the test images with references."""
     tflite_path = fetch(MODEL, data / "vww_96_int8.tflite", MODEL_SHA)
     archive = fetch(DATASET, data / "vw_coco2014_96.tar.gz", DATASET_SHA, DATASET_MIRRORS)
-    onnx.save(convert(tflite_path.read_bytes(), "vww"), output / "model.onnx")
+    onnx.save(convert(tflite_path.read_bytes(), "vww", props), output / "model.onnx")
     images, labels = test_images(archive)
     reference = image_references(tflite_path, images)
     metrics = {
@@ -115,7 +115,7 @@ def revalidate(plan, manifest, runtime, output, data):
     if (source["model_sha256"], source["dataset_sha256"]) != (MODEL_SHA, DATASET_SHA):
         raise ValueError("artifact was built from a different model or dataset")
     output.mkdir(parents=True)
-    images, labels, reference, _, metrics = model(output, data)
+    images, labels, reference, _, metrics = model(output, data, recorded_props(source))
     if digest(output / "model.onnx") != source["onnx_sha256"]:
         raise ValueError("conversion did not reproduce the published model")
     executable = runner(runtime, output, plan, output / "codegen")
@@ -168,7 +168,7 @@ def build(args):
     runtime = checkout(args.runtime_source, "https://github.com/raws-labs/tigris-runtime.git", RUNTIME)
     output.mkdir(parents=True)
     data = args.data.resolve()
-    images, labels, reference, tflite_path, metrics = model(output, data)
+    images, labels, reference, tflite_path, metrics = model(output, data, QUANTIZE_ROUNDING)
     if metrics["reference_accuracy"] < ACCURACY_FLOOR:
         raise ValueError("the source model misses the accuracy floor on the test set")
     photo = fetch(EXAMPLE, data / "vww-example.jpg", EXAMPLE_SHA)
@@ -232,7 +232,8 @@ def build(args):
             "compiler": {"version": COMPILER_VERSION, "commit": COMPILER},
             "source": {"model": MODEL, "model_sha256": MODEL_SHA, "dataset": DATASET,
                        "dataset_sha256": DATASET_SHA, "example": EXAMPLE, "example_sha256": EXAMPLE_SHA,
-                       "onnx_sha256": digest(output / "model.onnx"), "recipe": "recipes/vww.py",
+                       "onnx_sha256": digest(output / "model.onnx"), "onnx_props": QUANTIZE_ROUNDING,
+                       "recipe": "recipes/vww.py",
                        "recipe_sha256": recipe_hash, "recipe_commit": recipe_commit(),
                        "recipe_files": recipe_files, "numpy": np.__version__, "onnx": onnx.__version__,
                        "tflite-micro": micro_version()},

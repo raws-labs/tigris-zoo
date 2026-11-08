@@ -20,7 +20,7 @@ from tigris.zoo import digest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from int8_common import ROOT, checkout, fetch, recipe_commit, run, runner, slow_arena_gate  # noqa: E402
-from tflite_qdq import convert  # noqa: E402
+from tflite_qdq import QUANTIZE_ROUNDING, convert, recorded_props  # noqa: E402
 
 COMPILER = "908b0fd0a8687f45e20594ba95977aa8695c26ff"
 COMPILER_VERSION = "0.11.3"
@@ -113,12 +113,12 @@ def references(model_path, quantized):
     return np.array(outputs, dtype=np.int8)
 
 
-def model(output, data):
+def model(output, data, props):
     """The source model, its ONNX conversion, and the quantized test set."""
     tflite_path = fetch(MODEL, data / "kws_ref_model.tflite", MODEL_SHA)
     archive = fetch(DATASET, data / "speech_commands_test_set_v0.02.tar.gz", DATASET_SHA)
     model_bytes = tflite_path.read_bytes()
-    onnx.save(convert(model_bytes, "kws_ds_cnn"), output / "model.onnx")
+    onnx.save(convert(model_bytes, "kws_ds_cnn", props), output / "model.onnx")
     features, labels, names = clips(archive)
     scale, zero_point = input_quantization(model_bytes)
     quantized = quantize(features, scale, zero_point)
@@ -173,7 +173,7 @@ def revalidate(plan, manifest, runtime, output, data):
     if (source["model_sha256"], source["dataset_sha256"]) != (MODEL_SHA, DATASET_SHA):
         raise ValueError("artifact was built from a different model or dataset")
     output.mkdir(parents=True)
-    _, labels, _, quantized, reference, metrics, _ = model(output, data)
+    _, labels, _, quantized, reference, metrics, _ = model(output, data, recorded_props(source))
     if digest(output / "model.onnx") != source["onnx_sha256"]:
         raise ValueError("conversion did not reproduce the published model")
     executable = runner(runtime, output, plan, output / "codegen")
@@ -189,7 +189,7 @@ def build(args):
     runtime = checkout(args.runtime_source, "https://github.com/raws-labs/tigris-runtime.git", RUNTIME)
     output.mkdir(parents=True)
     data = args.data.resolve()
-    features, labels, names, quantized, reference, metrics, archive = model(output, data)
+    features, labels, names, quantized, reference, metrics, archive = model(output, data, QUANTIZE_ROUNDING)
     if metrics["reference_accuracy"] < ACCURACY_FLOOR:
         raise ValueError("the source model misses the accuracy floor on this test set")
     recipe_files = {name: digest(ROOT / name) for name in
@@ -276,7 +276,8 @@ def build(args):
         "license": "apache-2.0 AND cc-by-4.0",
         "compiler": {"version": COMPILER_VERSION, "commit": COMPILER},
         "source": {"model": MODEL, "model_sha256": MODEL_SHA, "dataset": DATASET, "dataset_sha256": DATASET_SHA,
-                   "onnx_sha256": digest(output / "model.onnx"), "recipe": "recipes/kws.py",
+                   "onnx_sha256": digest(output / "model.onnx"), "onnx_props": QUANTIZE_ROUNDING,
+                   "recipe": "recipes/kws.py",
                    "recipe_sha256": recipe_hash, "recipe_commit": recipe_commit(), "recipe_files": recipe_files,
                    "numpy": np.__version__, "onnx": onnx.__version__, "tflite-micro": micro_version()},
         "evaluation": evaluation,
