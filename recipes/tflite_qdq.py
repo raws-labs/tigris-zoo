@@ -23,7 +23,17 @@ from tflite.TensorType import TensorType
 OPERATORS = {getattr(BuiltinOperator, name): name for name in dir(BuiltinOperator) if not name.startswith("_")}
 
 
-def convert(tflite_bytes, name):
+# TFLite's QUANTIZE rounds float32 ties away from zero; ONNX's rounds them to even.
+QUANTIZE_ROUNDING = {"tigris.quantize_rounding": "half_away_from_zero"}
+
+
+def recorded_props(source):
+    """The model properties an artifact's conversion set. Manifests without the
+    onnx_props record come from a conversion that set none."""
+    return source.get("onnx_props", {})
+
+
+def convert(tflite_bytes, name, props):
     model = Model.GetRootAs(tflite_bytes, 0)
     graph = model.Subgraphs(0)
     nodes, initializers = [], []
@@ -181,7 +191,6 @@ def convert(tflite_bytes, name):
         helper.make_graph(nodes, name, [graph_input], [graph_output], initializers),
         opset_imports=[helper.make_opsetid("", 17)])
     onnx_model.ir_version = 8
-    # TFLite's QUANTIZE rounds float32 ties away from zero; ONNX's rounds them to even.
-    helper.set_model_props(onnx_model, {"tigris.quantize_rounding": "half_away_from_zero"})
+    helper.set_model_props(onnx_model, props)
     onnx.checker.check_model(onnx_model)
     return onnx_model
