@@ -47,7 +47,7 @@ jobs:
       - name: Install build dependencies
         run: |
           python -m venv .venv
-          .venv/bin/pip install -c requirements-build.txt 'tigris-ml[dev]' tflite tflite-micro pillow
+          .venv/bin/pip install -c requirements-build.txt tigris-ml onnxruntime pytest tflite tflite-micro pillow
           mkdir -p .build
       - name: Check publisher
         run: |
@@ -110,7 +110,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m venv .venv
-          .venv/bin/pip install -c requirements-build.txt 'tigris-ml[dev]'
+          .venv/bin/pip install -c requirements-build.txt tigris-ml onnxruntime pytest
       - name: Check publisher
         run: .venv/bin/python -m pytest tests -q
       - name: Prepare card update
@@ -144,7 +144,7 @@ jobs:
           python -m venv .venv
           # Compiler and runtime release as a pair, so the runtime under test is
           # validated with the code generator released alongside it.
-          .venv/bin/pip install -c requirements-build.txt "tigris-ml[dev]==$RUNTIME" tflite tflite-micro pillow
+          .venv/bin/pip install -c requirements-build.txt "tigris-ml==$RUNTIME" onnxruntime pytest tflite tflite-micro pillow
       - name: Check publisher
         run: .venv/bin/python -m pytest tests -q
       - name: Restore pinned downloads

@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m venv .venv
-          .venv/bin/pip install -c requirements-build.txt 'tigris-ml[dev]>=0.9.0'
+          .venv/bin/pip install -c requirements-build.txt 'tigris-ml>=0.9.0' onnxruntime pytest ruff
       - name: Lint
         run: .venv/bin/ruff check --select E4,E7,E9,F recipes scripts tests
       - name: Test
